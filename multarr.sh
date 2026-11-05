@@ -251,3 +251,38 @@ planarr() {
     local _MA_J="$2" _MA_I=0 _MA_STR=""
     _pa_value ""
 }
+
+# --- STRUCARR (user-named arrays: ${data['root{a}[0]{b}']}) ---
+# Data lives in <name>, types in <name>_types. Reuses the multarr engine by
+# rebinding MULTARR_DATA/MULTARR_TYPES to them (bash dynamic scoping).
+# Types are the multarr ones: string, int, float, bool, null.
+
+strucarr_parse() {
+    local _sa="$1"
+    declare -gA "$_sa" "${_sa}_types"
+    local -n MULTARR_DATA="$_sa" MULTARR_TYPES="${_sa}_types"
+    json_to_multarr "$2" "${3:-root}"
+}
+
+strucarr_set() {
+    local _sa="$1"
+    declare -gA "$_sa" "${_sa}_types"
+    local -n MULTARR_DATA="$_sa" MULTARR_TYPES="${_sa}_types"
+    multarr_set "$2" "$3" "${4:-auto}"
+}
+
+strucarr_get() {
+    local -n MULTARR_DATA="$1" MULTARR_TYPES="${1}_types"
+    multarr_get "$2" "${3:-}"
+}
+
+strucarr_type() {
+    local -n MULTARR_DATA="$1" MULTARR_TYPES="${1}_types"
+    local t; t="$(multarr_type "$2")"
+    printf '%s\n' "${t:-unknown}"
+}
+
+strucarr_to_json() {
+    local -n MULTARR_DATA="$1" MULTARR_TYPES="${1}_types"
+    multarr_to_json "${2:-root}"
+}

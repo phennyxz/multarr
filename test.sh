@@ -10,3 +10,8 @@ multarr_mod_delete 'root{ok}'; multarr_to_json; echo
 declare -A flat
 planarr flat '{"portas":[80,443],"admin":{"nome":"Carlos","papeis":["admin","dev"]}}'
 [[ "${flat[portas/1]}" == 443 && "${flat[admin/papeis/1]}" == dev ]] && echo "planarr ok" || { echo "planarr FAIL"; exit 1; }
+
+strucarr_parse data '{"servidor":{"host":"localhost","porta":8080,"ativo":true},"usuarios":[{"nome":"Carlos","idade":30},{"nome":"Ana","idade":25}]}'
+[[ "${data['root{usuarios}[1]{nome}']}" == Ana && "$(strucarr_type data 'root{servidor}{porta}')" == int ]] || { echo "strucarr FAIL"; exit 1; }
+[[ "$(strucarr_to_json data)" == '{"servidor":{"ativo":true,"host":"localhost","porta":8080},"usuarios":[{"idade":30,"nome":"Carlos"},{"idade":25,"nome":"Ana"}]}' ]] || { echo "strucarr json FAIL"; exit 1; }
+[[ ${#MULTARR_DATA[@]} -gt 0 ]] && echo "strucarr ok"
