@@ -205,3 +205,49 @@ multarr_mod_delete() {
     done
     return 0
 }
+
+# --- PLANARR (JSON -> flat associative array, paths like admin/papeis/0) ---
+# Usage: declare -A map; planarr map "$json"
+
+_pa_value() {
+    local path="$1" c key idx=0 lit sub
+    _ma_ws
+    c="${_MA_J:_MA_I:1}"
+    case "$c" in
+        '{')
+            ((_MA_I++)); _ma_ws
+            if [[ "${_MA_J:_MA_I:1}" == '}' ]]; then ((_MA_I++)); return; fi
+            while ((_MA_I < ${#_MA_J})); do
+                _ma_ws; _ma_str; key="$_MA_STR"
+                _ma_ws; ((_MA_I++))
+                _pa_value "${path:+$path/}${key}"
+                _ma_ws
+                c="${_MA_J:_MA_I:1}"; ((_MA_I++))
+                [[ "$c" == ',' ]] || break
+            done ;;
+        '[')
+            ((_MA_I++)); _ma_ws
+            if [[ "${_MA_J:_MA_I:1}" == ']' ]]; then ((_MA_I++)); return; fi
+            while ((_MA_I < ${#_MA_J})); do
+                _pa_value "${path:+$path/}${idx}"; ((idx++))
+                _ma_ws
+                c="${_MA_J:_MA_I:1}"; ((_MA_I++))
+                [[ "$c" == ',' ]] || break
+            done ;;
+        '"') _ma_str; _PA_ARR["$path"]="$_MA_STR" ;;
+        *)
+            lit=""
+            while ((_MA_I < ${#_MA_J})); do
+                c="${_MA_J:_MA_I:1}"
+                [[ "$c" == [,\}\][:space:]] ]] && break
+                lit+="$c"; ((_MA_I++))
+            done
+            _PA_ARR["$path"]="$lit" ;;
+    esac
+}
+
+planarr() {
+    local -n _PA_ARR="$1"
+    local _MA_J="$2" _MA_I=0 _MA_STR=""
+    _pa_value ""
+}

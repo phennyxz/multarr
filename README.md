@@ -4,6 +4,7 @@ Estruturas de dados multidimensionais tipadas em Bash puro (4.3+), com notação
 
 - **Core:** `multarr_set`, `multarr_get`, `multarr_type`, `multarr_exists` (tipos: string, int, float, bool, null)
 - **JSON:** `json_to_multarr`, `multarr_to_json`
+- **Flat:** `planarr nome_do_array "$json"` achata o JSON em um array associativo (`admin/papeis/0`)
 - **Iteradores:** `multarr_foritem`, `multarr_fortype`, `multarr_forpath` (o comando é executado via `eval`; use apenas comandos confiáveis)
 - **Modificadores:** `multarr_mod_upper`, `multarr_mod_incr`, `multarr_mod_delete`
 
