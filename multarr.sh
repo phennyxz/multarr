@@ -286,3 +286,155 @@ strucarr_to_json() {
     local -n MULTARR_DATA="$1" MULTARR_TYPES="${1}_types"
     multarr_to_json "${2:-root}"
 }
+
+# --- TYPARR (typed flat keys: ${map['ols:admin/papeis/0']}) ---
+# Key = "<letters>:<path>"; one letter per path segment gives that node's type:
+#   o=object  l=list  s=string  i=int  f=float  b=bool  n=null
+# e.g. {"admin":{"papeis":["x"]}} -> map['ols:admin/papeis/0']=x
+# map[':'] holds the root kind (o or l). <name>_idx maps plain path -> full key.
+# Object keys must not contain '/'.
+
+_ta_type_word() {
+    case "$1" in
+        o) echo object ;; l) echo list ;; s) echo string ;; i) echo int ;;
+        f) echo float ;; b) echo bool ;; n) echo null ;; *) echo unknown ;;
+    esac
+}
+
+_ta_value() {
+    local path="$1" pfx="$2" c key idx=0 lit t
+    _ma_ws
+    c="${_MA_J:_MA_I:1}"
+    case "$c" in
+        '{')
+            _TA[':']="${_TA[':']:-o}"
+            [[ -n "$path" ]] && pfx+=o
+            ((_MA_I++)); _ma_ws
+            if [[ "${_MA_J:_MA_I:1}" == '}' ]]; then ((_MA_I++)); return; fi
+            while ((_MA_I < ${#_MA_J})); do
+                _ma_ws; _ma_str; key="$_MA_STR"
+                _ma_ws; ((_MA_I++))
+                _ta_value "${path:+$path/}${key}" "${pfx}"
+                _ma_ws
+                c="${_MA_J:_MA_I:1}"; ((_MA_I++))
+                [[ "$c" == ',' ]] || break
+            done ;;
+        '[')
+            _TA[':']="${_TA[':']:-l}"
+            [[ -n "$path" ]] && pfx+=l
+            ((_MA_I++)); _ma_ws
+            if [[ "${_MA_J:_MA_I:1}" == ']' ]]; then ((_MA_I++)); return; fi
+            while ((_MA_I < ${#_MA_J})); do
+                _ta_value "${path:+$path/}${idx}" "${pfx}"; ((idx++))
+                _ma_ws
+                c="${_MA_J:_MA_I:1}"; ((_MA_I++))
+                [[ "$c" == ',' ]] || break
+            done ;;
+        *)
+            if [[ "$c" == '"' ]]; then _ma_str; lit="$_MA_STR"; t=s
+            else
+                lit=""
+                while ((_MA_I < ${#_MA_J})); do
+                    c="${_MA_J:_MA_I:1}"
+                    [[ "$c" == [,\}\][:space:]] ]] && break
+                    lit+="$c"; ((_MA_I++))
+                done
+                if [[ "$lit" == true || "$lit" == false ]]; then t=b
+                elif [[ "$lit" == null ]]; then t=n
+                elif [[ "$lit" =~ ^-?[0-9]+$ ]]; then t=i
+                elif [[ "$lit" =~ ^-?[0-9]+\.[0-9]+([eE][-+]?[0-9]+)?$ ]]; then t=f
+                else t=s; fi
+            fi
+            _TA["${pfx}${t}:${path}"]="$lit"
+            _TA_IDX["$path"]="${pfx}${t}:${path}" ;;
+    esac
+}
+
+typarr_parse() {
+    local _ta="$1"
+    declare -gA "$_ta" "${_ta}_idx"
+    local -n _TA="$_ta" _TA_IDX="${_ta}_idx"
+    _TA=(); _TA_IDX=()
+    local _MA_J="$2" _MA_I=0 _MA_STR=""
+    _ta_value "" ""
+}
+
+typarr_get() {
+    local -n _TA="$1" _TA_IDX="${1}_idx"
+    if [[ -n "${_TA_IDX[$2]+x}" ]]; then printf '%s\n' "${_TA[${_TA_IDX[$2]}]}"
+    else printf '%s\n' "${3:-}"; fi
+}
+
+typarr_type() {
+    local -n _TA_IDX="${1}_idx"
+    local k="${_TA_IDX[$2]:-}"
+    local l="${k%%:*}"
+    _ta_type_word "${l: -1}"
+}
+
+# Runs <command> (eval) for every leaf of the given type letter (i, s, f, b, n).
+# Exposes MA_PATH (plain path) and MA_VAL.
+typarr_fortype() {
+    local -n _TA="$1"
+    local want="$2" command="$3" key letters MA_PATH MA_VAL
+    for key in "${!_TA[@]}"; do
+        [[ "$key" == ':' ]] && continue
+        letters="${key%%:*}"
+        [[ "${letters: -1}" == "$want" ]] || continue
+        MA_PATH="${key#*:}"; MA_VAL="${_TA[$key]}"
+        eval "$command"
+    done
+}
+
+_ta_json() {
+    local base="$1" d="$2" kind="$3" key letters path name tok
+    local -a parts
+    local -A seen=() ckind=()
+    local -a names=()
+    for key in "${!_TA[@]}"; do
+        [[ "$key" == ':' ]] && continue
+        letters="${key%%:*}"; path="${key#*:}"
+        IFS='/' read -ra parts <<< "$path"
+        ((${#parts[@]} > d)) || continue
+        local pre=""
+        for ((tok = 0; tok < d; tok++)); do pre+="${pre:+/}${parts[tok]}"; done
+        [[ "$pre" == "$base" ]] || continue
+        name="${parts[d]}"
+        if [[ -z "${seen[$name]+x}" ]]; then
+            seen["$name"]=1; names+=("$name"); ckind["$name"]="${letters:d:1}"
+        fi
+    done
+    local sep=""
+    if [[ "$kind" == l ]]; then
+        printf '['
+        while IFS= read -r name; do
+            printf '%s' "$sep"; _ta_child "$name"; sep=","
+        done < <(printf '%s\n' "${names[@]}" | sort -n)
+        printf ']'
+    else
+        printf '{'
+        while IFS= read -r name; do
+            printf '%s"%s":' "$sep" "$(_ma_json_escape "$name")"; _ta_child "$name"; sep=","
+        done < <(printf '%s\n' "${names[@]}" | sort)
+        printf '}'
+    fi
+}
+
+_ta_child() {
+    local name="$1" k="${ckind[$name]}" cp="${base:+$base/}$name"
+    if [[ "$k" == o || "$k" == l ]]; then
+        _ta_json "$cp" "$((d + 1))" "$k"
+    else
+        local key="${_TA_IDX[$cp]}" v="${_TA[${_TA_IDX[$cp]}]}"
+        case "$k" in
+            s) printf '"%s"' "$(_ma_json_escape "$v")" ;;
+            *) printf '%s' "$v" ;;
+        esac
+    fi
+}
+
+typarr_to_json() {
+    local -n _TA="$1" _TA_IDX="${1}_idx"
+    [[ -n "${_TA[:]+x}" ]] || { printf 'null\n'; return; }
+    _ta_json "" 0 "${_TA[:]}"; echo
+}
